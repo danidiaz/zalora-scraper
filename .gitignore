@@ -1,0 +1,10 @@
+dist
+cabal-dev
+log
+site_key.txt
+users.json
+*.o
+*.hi
+*.chi
+*.chs.h
+.virthualenv
