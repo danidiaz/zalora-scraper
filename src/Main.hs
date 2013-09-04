@@ -17,25 +17,38 @@ import           Prelude
 
 import           System.IO.Streams (InputStream, OutputStream, stdout)
 import qualified System.IO.Streams as Streams
-import qualified Data.ByteString as S
+import           Data.Text (Text)
+import qualified Data.Text as T
+import           Data.Text.Encoding
+import           Data.Text.IO as TIO
 
 import           Text.HTML.TagSoup
 
 import           Network.Http.Client
 
+replusify = msum . map return
 
-matches :: Tag S.ByteString -> Tag S.ByteString -> Bool
+matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
 
-scripts :: [Tag S.ByteString] -> [S.ByteString]
+scripts :: [Tag Text] -> [Text]
 scripts tags = observeAll $ do
-    (_:TagText txt:_) <- msum . map return $ partitions (matches $ TagOpen "script"  []) tags
-    return txt
-
+    (_:TagText txt:_) <- replusify $ partitions (matches $ TagOpen "script"  []) tags
+    let mark = "wt.contentGroup = {" 
+    (_:txt':_) <- return $ T.splitOn mark txt
+    -- guard $ T.isInfixOf mark txt
+    return txt'
 
 main :: IO ()
 main = do
-    soup <- parseTags <$> get "http://www.zalora.sg/" concatHandler'
+    soup <- parseTags . decodeUtf8 <$> get "http://www.zalora.sg/" concatHandler'
     -- mapM_ (putStrLn . show) soup
     let s = scripts soup 
-    mapM_ S.putStrLn s
+    mapM_ TIO.putStrLn s
+
+
+
+
+
+
+
