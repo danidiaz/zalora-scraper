@@ -55,6 +55,9 @@ executable zalora-scraper
         base ==4.6.*,
         tagsoup >= 0.13 && < 0.20,
         io-streams >= 1.1.1.0 && < 1.2, 
-        http-streams >= 0.6.0.2 && < 0.7 
+        http-streams >= 0.6.0.2 && < 0.7,
+        bytestring >= 0.10 && < 0.12,
+        logict >= 0.6 && < 0.7,
+        mtl >= 2.1.2 && < 3 
 
 
