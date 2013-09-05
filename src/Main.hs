@@ -47,7 +47,7 @@ parseCG =
 keywordList :: [Tag Text] -> Maybe [Text]
 keywordList tags = listToMaybe $ do
     (_:TagText txt:_) <- partitions (matches $ TagOpen "script" []) tags
-    maybeToList . maybeResult $ (takeWhile (not . T.null) <$> parse parseCG txt)
+    maybeToList . maybeResult $ takeWhile (not.T.null) <$> parse parseCG txt
 
 main :: IO ()
 main = do
