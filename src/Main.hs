@@ -32,8 +32,6 @@ import           Text.HTML.TagSoup
 
 import           Network.Http.Client
 
-replusify = msum . map return
-
 matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
 
@@ -46,9 +44,9 @@ parseCG =
                         *> char '"' *> takeWhile isAlpha <* char '"'
 
 keywordList :: [Tag Text] -> Maybe [Text]
-keywordList tags = listToMaybe . observeAll $ do
-    (_:TagText txt:_) <- replusify $ partitions (matches $ TagOpen "script" []) tags
-    replusify . maybeToList . maybeResult $ parse parseCG txt
+keywordList tags = listToMaybe $ do
+    (_:TagText txt:_) <- partitions (matches $ TagOpen "script" []) tags
+    maybeToList . maybeResult $ parse parseCG txt
 
 main :: IO ()
 main = do
