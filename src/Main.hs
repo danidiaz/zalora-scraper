@@ -16,7 +16,7 @@ import           Data.Char
 import           Data.Maybe
 import           Data.Monoid
 import           System.IO
-import           Prelude hiding (takeWhile,mapM_)
+import           Prelude hiding (mapM_)
 
 import           System.IO.Streams (InputStream, OutputStream, stdout)
 import qualified System.IO.Streams as Streams
@@ -25,7 +25,8 @@ import qualified Data.Text as T
 import           Data.Text.Encoding
 import           Data.Text.IO as TIO
 
-import           Data.Attoparsec.Text
+import           Data.Attoparsec.Text hiding (takeWhile)
+import qualified Data.Attoparsec.Text as A
 import           Data.Attoparsec.Combinator
 
 import           Text.HTML.TagSoup
@@ -41,12 +42,12 @@ parseCG =
     where
         ss = skipSpace
         entry =  ss *> skipMany digit *> ss *> char ':' *> ss 
-                        *> char '"' *> takeWhile isAlpha <* char '"'
+                        *> char '"' *> A.takeWhile isAlpha <* char '"'
 
 keywordList :: [Tag Text] -> Maybe [Text]
 keywordList tags = listToMaybe $ do
     (_:TagText txt:_) <- partitions (matches $ TagOpen "script" []) tags
-    maybeToList . maybeResult $ parse parseCG txt
+    maybeToList . maybeResult $ (takeWhile (not . T.null) <$> parse parseCG txt)
 
 main :: IO ()
 main = do
