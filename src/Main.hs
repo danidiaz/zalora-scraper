@@ -15,6 +15,7 @@ import           Data.Traversable
 import           Data.Char
 import           Data.Maybe
 import           Data.Monoid
+import           Data.List
 import           System.IO
 import           Prelude hiding (mapM_)
 
@@ -37,12 +38,13 @@ matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
 
 parseCG :: Parser [Text] 
-parseCG = 
-    manyTill' anyChar (string "wt.contentGroup = {") *> sepBy' entry (char ',')
-    where
-        ss = skipSpace
-        entry =  ss *> skipMany digit *> ss *> char ':' *> ss 
-                        *> char '"' *> A.takeWhile isAlpha <* char '"'
+parseCG = manyTill' (takeTill isEndOfLine *> endOfLine)
+                    (string "wt.contentGroup" *> _char_ '=' *> char '{') 
+          *> sepBy' (skipSpace *> skipMany digit *> _char_ ':' *> parseQuot) 
+                    (char ',')
+    where _char_ c = skipSpace *> char c *> skipSpace
+          parseQuot = char '"' *> A.takeWhile isAlpha <* char '"'
+                       
 
 keywordList :: [Tag Text] -> Maybe [Text]
 keywordList tags = listToMaybe $ do
