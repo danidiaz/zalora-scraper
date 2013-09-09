@@ -36,26 +36,29 @@ import           Network.Http.Client
 
 matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
+-- wt.contentId = "shop.pc.brand.mexx"
+parseKeywords :: Parser [Text] 
+parseKeywords = 
+       manyTill' (takeTill isEndOfLine *> endOfLine)
+                 (string "wt.contentId" *> _char '=' *> _char '"') 
+    *> sepBy' (takeTill $ \c -> c == '.' || c == '"') (char '.')
+    where _char x = skipSpace *> char x
 
-parseCG :: Parser [Text] 
-parseCG = manyTill' (takeTill isEndOfLine *> endOfLine)
-                    (_string "wt.contentGroup" *> _char '=' *> _char '{') 
-          *> sepBy' (_skipMany1 digit *> _char ':' *> _parseQuot) 
-                    (_char ',')
-    where _string x = skipSpace *> string x
-          _char x = skipSpace *> char x
-          _skipMany1 x = skipSpace *> skipMany1 x
-          _parseQuot = _char '"' *> A.takeWhile isAlpha <* char '"'
-
-keywordList :: [Tag Text] -> Maybe [Text]
-keywordList tags = listToMaybe $ do
+scrapeKeywords :: [Tag Text] -> Maybe [Text]
+scrapeKeywords tags = listToMaybe $ do
     (_:TagText txt:_) <- partitions (matches $ TagOpen "script" []) tags
-    maybeToList . maybeResult $ takeWhile (not.T.null) <$> parse parseCG txt
+    maybeToList . maybeResult $ 
+        takeWhile (not.T.null) <$> parse parseKeywords txt
+
+scrapeLinks :: [Tag Text] -> [Text]
+scrapeLinks = 
+   map (fromAttrib "href") . filter (matches $ TagOpen "a" [("href","")])
 
 main :: IO ()
 main = do
     soup <- parseTags . decodeUtf8 <$> get "http://www.zalora.sg/" concatHandler'
-    mapM_ (mapM_ TIO.putStrLn) (keywordList soup)
+    mapM_ (mapM_ TIO.putStrLn) (scrapeKeywords soup)
+    -- mapM_ TIO.putStrLn (scrapeLinks soup)
     return ()
 
 
