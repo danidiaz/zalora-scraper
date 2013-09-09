@@ -60,6 +60,8 @@ executable zalora-scraper
         logict >= 0.6 && < 0.7,
         mtl >= 2.1.2 && < 3, 
         text >= 0.11.3 && < 0.12,
-        attoparsec >= 0.10.4.0 && < 0.10.5
+        attoparsec >= 0.10.4.0 && < 0.10.5,
+        pipes >= 4.0.0 && < 5.0.0,
+        containers >= 0.5.3 && < 0.6.0
 
 
