@@ -39,13 +39,13 @@ matches pattern tag = tag ~== pattern
 
 parseCG :: Parser [Text] 
 parseCG = manyTill' (takeTill isEndOfLine *> endOfLine)
-                    (_s_ string "wt.contentGroup" *> s_ char '=' *> char '{') 
-          *> sepBy' (_s_ skipMany1 digit *> s_ char ':' *> parseQuot) 
-                    (_s char ',')
-    where s_ f x = f x <* skipSpace
-          _s f x = skipSpace *> f x
-          _s_ f x = skipSpace *> f x <* skipSpace
-          parseQuot = char '"' *> A.takeWhile isAlpha <* char '"'
+                    (_string "wt.contentGroup" *> _char '=' *> _char '{') 
+          *> sepBy' (_skipMany1 digit *> _char ':' *> _parseQuot) 
+                    (_char ',')
+    where _string x = skipSpace *> string x
+          _char x = skipSpace *> char x
+          _skipMany1 x = skipSpace *> skipMany1 x
+          _parseQuot = _char '"' *> A.takeWhile isAlpha <* char '"'
 
 keywordList :: [Tag Text] -> Maybe [Text]
 keywordList tags = listToMaybe $ do
