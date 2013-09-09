@@ -26,10 +26,11 @@ import qualified System.IO.Streams as Streams
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Encoding
-import           Data.Text.IO as TIO
+import qualified Data.Text.IO as TIO
 
 import           Pipes
 import           Pipes.Core
+import qualified Pipes.Prelude as P
 
 import           Data.Attoparsec.Text hiding (takeWhile)
 import qualified Data.Attoparsec.Text as A
@@ -67,8 +68,25 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
             . map (fromAttrib "id") 
             . filter (matches $ TagOpen "a" [("href",""),("class","itm-link"),("id","")])
 
-pageServer :: Monad m => Text -> Server (S.Set Text) (M.Map Text [Tag Text]) m a 
-pageServer baseURL = forever $ undefined
+pageServer :: Monad m => Text -> [Text] -> Server [Text] [(Text,[Tag Text])] m a 
+pageServer baseURL urlBatch = 
+    respond [] >>= pageServer baseURL
+
+data SKUBatch = SKUBatch {
+        keywords :: [Text],
+        skus :: [Text] 
+    } deriving Show
+
+scraperCore :: Monad m => Text -> () -> Proxy [Text] [(Text,[Tag Text])] () SKUBatch m ()
+scraperCore urls () = do
+    processedPages <- request []
+    respond $ SKUBatch [] []
+
+printer :: MonadIO m => Consumer SKUBatch m a
+printer = forever $ await >>= liftIO . putStrLn . show
+
+pipeline :: MonadIO m => Text -> Text -> Effect m ()
+pipeline baseUrl initialUrl = pageServer baseUrl >+> scraperCore initialUrl >+> P.generalize printer $ ()
 
 main :: IO ()
 main = do
@@ -76,11 +94,6 @@ main = do
     mapM_ (mapM_ TIO.putStrLn) (scrapeKeywords soup)
     mapM_ TIO.putStrLn (scrapeLinks soup)
     mapM_ TIO.putStrLn (scrapeSKUs soup)
+    runEffect $ pipeline "http://www.zalora.sg/" "/" 
     return ()
-
-
-
-
-
-
 
