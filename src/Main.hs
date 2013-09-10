@@ -93,8 +93,17 @@ instance Show SKUBatch where
 scraperCore :: S.MonadState (S.Set Text,S.Set Text) s => 
                    () -> Proxy [Text] (M.Map Text [Tag Text]) () SKUBatch s ()
 scraperCore () = do
-    processedPages <- request $ []
-    respond $ SKUBatch [] []
+    (pending,visited) <- S.get
+    if S.null pending
+        then return ()
+        else do processedPages <- request $ S.toList pending
+                let pending' = S.difference pending (M.keysSet processedPages)
+                    links = M.foldl' (\s -> S.union s . S.fromList . scrapeLinks) S.empty processedPages 
+                    pending'' = S.union pending' (S.difference links visited)
+                    visited' = S.union links visited 
+                S.put (pending'',visited')
+                respond $ SKUBatch [] []
+                scraperCore ()
 
 printer :: MonadIO m => Consumer SKUBatch m a
 printer = forever $ await >>= liftIO . putStrLn . show
