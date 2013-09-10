@@ -62,6 +62,7 @@ executable zalora-scraper
         text >= 0.11.3 && < 0.12,
         attoparsec >= 0.10.4.0 && < 0.10.5,
         pipes >= 4.0.0 && < 5.0.0,
-        containers >= 0.5.3 && < 0.6.0
+        containers >= 0.5.3 && < 0.6.0,
+        lens >= 3.9.0 && < 4.0.0
 
 

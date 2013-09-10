@@ -10,6 +10,7 @@ import           Control.Applicative
 import           Control.Monad hiding (mapM_)
 import           Control.Monad.Trans
 import           Control.Monad.Logic (observeAll)
+import           Control.Lens
 import           Data.Foldable (mapM_)
 import           Data.Traversable
 import           Data.Char
@@ -73,9 +74,17 @@ pageServer baseURL urlBatch =
     respond [] >>= pageServer baseURL
 
 data SKUBatch = SKUBatch {
-        keywords :: [Text],
-        skus :: [Text] 
-    } deriving Show
+        _keywords :: [Text],
+        _skus :: [Text] 
+    } 
+
+makeLenses ''SKUBatch
+
+instance Show SKUBatch where
+    show (SKUBatch ks skus) = 
+        let col1 = concat ["\"",concat . intersperse "," . map T.unpack $ skus,"\""]
+            col2 = concat $ intersperse "." . map T.unpack $ ks
+        in concat  [col1, ", ", col2]
 
 scraperCore :: Monad m => Text -> () -> Proxy [Text] [(Text,[Tag Text])] () SKUBatch m ()
 scraperCore urls () = do
@@ -95,5 +104,6 @@ main = do
     mapM_ TIO.putStrLn (scrapeLinks soup)
     mapM_ TIO.putStrLn (scrapeSKUs soup)
     runEffect $ pipeline "http://www.zalora.sg/" "/" 
+    putStrLn $ show $ SKUBatch ["shop","sg","bands","foo"] ["ADFBCD","4343434","4343344334"]
     return ()
 
