@@ -1,6 +1,7 @@
-{-# LANGUAGE CPP             #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP                #-}
+{-# LANGUAGE TemplateHaskell    #-}
+{-# LANGUAGE FlexibleContexts   #-}
+{-# LANGUAGE OverloadedStrings  #-}
 
 module Main where
 
@@ -9,6 +10,8 @@ import           Control.Exception (SomeException, try)
 import           Control.Applicative
 import           Control.Monad hiding (mapM_)
 import           Control.Monad.Trans
+import qualified Control.Monad.State as S
+import qualified Control.Monad.Reader as R
 import           Control.Monad.Logic (observeAll)
 import           Control.Lens
 import           Data.Foldable (mapM_)
@@ -31,6 +34,7 @@ import qualified Data.Text.IO as TIO
 
 import           Pipes
 import           Pipes.Core
+import           Pipes.Lift
 import qualified Pipes.Prelude as P
 
 import           Data.Attoparsec.Text hiding (takeWhile)
@@ -69,9 +73,9 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
             . map (fromAttrib "id") 
             . filter (matches $ TagOpen "a" [("href",""),("class","itm-link"),("id","")])
 
-pageServer :: Monad m => Text -> [Text] -> Server [Text] [(Text,[Tag Text])] m a 
-pageServer baseURL urlBatch = 
-    respond [] >>= pageServer baseURL
+pageServer :: R.MonadReader Text m => [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
+pageServer urlBatch = 
+    respond M.empty >>= pageServer 
 
 data SKUBatch = SKUBatch {
         _keywords :: [Text],
@@ -84,18 +88,19 @@ instance Show SKUBatch where
     show (SKUBatch ks skus) = 
         let col1 = concat ["\"",concat . intersperse "," . map T.unpack $ skus,"\""]
             col2 = concat $ intersperse "." . map T.unpack $ ks
-        in concat  [col1, ", ", col2]
+        in concat  [col1, "; ", col2]
 
-scraperCore :: Monad m => Text -> () -> Proxy [Text] [(Text,[Tag Text])] () SKUBatch m ()
-scraperCore urls () = do
-    processedPages <- request []
+scraperCore :: S.MonadState (S.Set Text,S.Set Text) s => 
+                   () -> Proxy [Text] (M.Map Text [Tag Text]) () SKUBatch s ()
+scraperCore () = do
+    processedPages <- request $ []
     respond $ SKUBatch [] []
 
 printer :: MonadIO m => Consumer SKUBatch m a
 printer = forever $ await >>= liftIO . putStrLn . show
 
-pipeline :: MonadIO m => Text -> Text -> Effect m ()
-pipeline baseUrl initialUrl = pageServer baseUrl >+> scraperCore initialUrl >+> P.generalize printer $ ()
+pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Effect s ()
+pipeline = pageServer >+> scraperCore >+> P.generalize printer $ ()
 
 main :: IO ()
 main = do
@@ -103,7 +108,8 @@ main = do
     mapM_ (mapM_ TIO.putStrLn) (scrapeKeywords soup)
     mapM_ TIO.putStrLn (scrapeLinks soup)
     mapM_ TIO.putStrLn (scrapeSKUs soup)
-    runEffect $ pipeline "http://www.zalora.sg/" "/" 
+    let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline 
+    (_,_,()) <- runEffect $ ran 
     putStrLn $ show $ SKUBatch ["shop","sg","bands","foo"] ["ADFBCD","4343434","4343344334"]
     return ()
 
