@@ -137,7 +137,7 @@ main :: IO ()
 main = do
     let configuration = ("http://www.zalora.sg/",3,System.IO.stdout)
     withFile "./dist/result.txt" WriteMode $ \h -> 
-        let ran = runRWSP (_3 .~ h $ configuration) (S.singleton "/", S.empty) $ 
+        let ran = runRWSP (set _3 h configuration) (S.singleton "/", S.empty) $ 
                       hoist (magnify _1) . pageServer >+> 
                       P.generalize urlLogger >+> 
                       hoist (magnify _2) . throttler >+> 
