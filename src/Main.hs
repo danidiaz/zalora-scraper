@@ -89,10 +89,11 @@ spider () = do
     if S.null pending
         then return ()
         else do processedPages <- request $ S.toList pending
-                let pending' = S.difference pending (M.keysSet processedPages)
+                let urls =  M.keysSet processedPages
+                    pending' = S.difference pending urls
+                    visited' = S.union visited urls 
                     links = M.foldl' (\s -> S.union s . S.fromList . scrapeLinks) S.empty processedPages 
-                    pending'' = S.union pending' (S.difference links visited)
-                    visited' = S.union links visited 
+                    pending'' = S.union pending' (S.difference links visited')
                 S.put (pending'',visited')
                 F.forM_ processedPages respond 
                 spider ()
