@@ -64,6 +64,7 @@ executable zalora-scraper
         pipes >= 4.0.0 && < 5.0.0,
         containers >= 0.5.3 && < 0.6.0,
         lens >= 3.9.0 && < 4.0.0,
-        async >= 2.0.1.0 && < 2.1 
+        async >= 2.0.1.0 && < 2.1,
+        mmorph >= 1.0.0 && < 1.1
 
 

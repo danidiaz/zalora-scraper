@@ -93,9 +93,10 @@ data SKUBatch = SKUBatch {
         _skus :: [Text] 
     } 
 
-throttler :: Monad m => Int -> [Text] -> Proxy [Text] a [Text] a m r
-throttler batchSize urls = do
-    request (Prelude.take batchSize urls) >>= respond >>= throttler batchSize
+throttler :: R.MonadReader Int m => [Text] -> Proxy [Text] a [Text] a m r
+throttler urls = do
+    batchSize <- R.ask
+    request (Prelude.take batchSize urls) >>= respond >>= throttler
 
 spider :: S.MonadState (S.Set Text,S.Set Text) s => 
                    () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
@@ -127,20 +128,21 @@ scraper = forever $ do
         Just kws@[_,_,_,_] -> yield $ SKUBatch kws (scrapeSKUs tags)
         _ -> return ()
 
-printer :: MonadIO m => Handle -> Consumer SKUBatch m a
-printer handle = forever $ await >>= liftIO . hPutStrLn handle . show
-
-pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Int -> Handle -> Effect s ()
-pipeline batchSize handle = pageServer >+> 
-                            P.generalize urlLogger >+> 
-                            throttler batchSize >+> 
-                            spider >+> 
-                            P.generalize scraper >+> 
-                            P.generalize (printer handle) $ ()
+printer :: (R.MonadReader Handle m, MonadIO m) => Consumer SKUBatch m a
+printer = forever $ do
+    handle <- R.ask
+    await >>= liftIO . hPutStrLn handle . show
 
 main :: IO ()
 main = do
+    let configuration = ("http://www.zalora.sg/",3,System.IO.stdout)
     withFile "./dist/result.txt" WriteMode $ \h -> 
-        let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline 3 h
+        let ran = runRWSP (_3 .~ h $ configuration) (S.singleton "/", S.empty) $ 
+                      hoist (magnify _1) . pageServer >+> 
+                      P.generalize urlLogger >+> 
+                      hoist (magnify _2) . throttler >+> 
+                      spider >+> 
+                      P.generalize scraper >+> 
+                      hoist (magnify _3) . P.generalize printer $ ()
         in do (_,_,()) <- runEffect ran 
               return ()
