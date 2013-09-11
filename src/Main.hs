@@ -82,6 +82,12 @@ pageServer urlBatch = do
                 parseTags . decodeUtf8 <$> get (encodeUtf8 $ rootUrl <> "/" <> rel) concatHandler'
     respond (M.fromList $ zip urlBatch pages) >>= pageServer
 
+urlLogger :: MonadIO m => Pipe (M.Map Text a) (M.Map Text a) m r
+urlLogger = forever $ do
+    stuff <- await  
+    liftIO $ putStrLn $ "Visited urls: " <> (show . F.toList . M.keysSet $ stuff)
+    yield stuff
+
 data SKUBatch = SKUBatch {
         _keywords :: [Text],
         _skus :: [Text] 
@@ -125,7 +131,7 @@ printer :: MonadIO m => Handle -> Consumer SKUBatch m a
 printer handle = forever $ await >>= liftIO . hPutStrLn handle . show
 
 pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Handle -> Effect s ()
-pipeline handle = pageServer >+> throttler >+> spider >+> P.generalize scraper >+> P.generalize (printer handle) $ ()
+pipeline handle = pageServer >+> P.generalize urlLogger >+> throttler >+> spider >+> P.generalize scraper >+> P.generalize (printer handle) $ ()
 
 main :: IO ()
 main = do
@@ -133,6 +139,3 @@ main = do
         let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline h
         in do (_,_,()) <- runEffect ran 
               return ()
-    putStrLn $ show $ SKUBatch ["shop","sg","bands","foo"] ["ADFBCD","4343434","4343344334"]
-    return ()
-
