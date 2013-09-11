@@ -93,7 +93,7 @@ data SKUBatch = SKUBatch {
         _skus :: [Text] 
     } 
 
-throttler :: R.MonadReader Int m => [Text] -> Proxy [Text] a [Text] a m r
+throttler :: R.MonadReader Int m => [b] -> Proxy [b] a [b] a m r
 throttler urls = do
     batchSize <- R.ask
     request (Prelude.take batchSize urls) >>= respond >>= throttler
