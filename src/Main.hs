@@ -26,6 +26,7 @@ import           Data.List
 import           System.IO
 import           Prelude hiding (mapM_)
 
+import           System.IO
 import           System.IO.Streams (InputStream, OutputStream, stdout)
 import qualified System.IO.Streams as Streams
 import           Data.Text (Text)
@@ -120,20 +121,18 @@ scraper = forever $ do
         Just kws@[_,_,_,_] -> yield $ SKUBatch kws (scrapeSKUs tags)
         _ -> return ()
 
-printer :: MonadIO m => Consumer SKUBatch m a
-printer = forever $ await >>= liftIO . putStrLn . show
+printer :: MonadIO m => Handle -> Consumer SKUBatch m a
+printer handle = forever $ await >>= liftIO . hPutStrLn handle . show
 
-pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Effect s ()
-pipeline = pageServer >+> throttler >+> spider >+> P.generalize scraper >+> P.generalize printer $ ()
+pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Handle -> Effect s ()
+pipeline handle = pageServer >+> throttler >+> spider >+> P.generalize scraper >+> P.generalize (printer handle) $ ()
 
 main :: IO ()
 main = do
-    soup <- parseTags . decodeUtf8 <$> get "http://www.zalora.sg/womens/clothing/shorts" concatHandler'
-    F.mapM_ (F.mapM_ TIO.putStrLn) (scrapeKeywords soup)
-    F.mapM_ TIO.putStrLn (scrapeLinks soup)
-    F.mapM_ TIO.putStrLn (scrapeSKUs soup)
-    let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline 
-    (_,_,()) <- runEffect $ ran 
+    withFile "./dist/result.txt" WriteMode $ \h -> 
+        let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline h
+        in do (_,_,()) <- runEffect ran 
+              return ()
     putStrLn $ show $ SKUBatch ["shop","sg","bands","foo"] ["ADFBCD","4343434","4343344334"]
     return ()
 
