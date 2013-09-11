@@ -93,9 +93,9 @@ data SKUBatch = SKUBatch {
         _skus :: [Text] 
     } 
 
-throttler :: Monad m => [Text] -> Proxy [Text] a [Text] a m r
-throttler urls = do
-    request (Prelude.take 3 urls) >>= respond >>= throttler
+throttler :: Monad m => Int -> [Text] -> Proxy [Text] a [Text] a m r
+throttler batchSize urls = do
+    request (Prelude.take batchSize urls) >>= respond >>= throttler batchSize
 
 spider :: S.MonadState (S.Set Text,S.Set Text) s => 
                    () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
@@ -130,12 +130,17 @@ scraper = forever $ do
 printer :: MonadIO m => Handle -> Consumer SKUBatch m a
 printer handle = forever $ await >>= liftIO . hPutStrLn handle . show
 
-pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Handle -> Effect s ()
-pipeline handle = pageServer >+> P.generalize urlLogger >+> throttler >+> spider >+> P.generalize scraper >+> P.generalize (printer handle) $ ()
+pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Int -> Handle -> Effect s ()
+pipeline batchSize handle = pageServer >+> 
+                            P.generalize urlLogger >+> 
+                            throttler batchSize >+> 
+                            spider >+> 
+                            P.generalize scraper >+> 
+                            P.generalize (printer handle) $ ()
 
 main :: IO ()
 main = do
     withFile "./dist/result.txt" WriteMode $ \h -> 
-        let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline h
+        let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline 3 h
         in do (_,_,()) <- runEffect ran 
               return ()
