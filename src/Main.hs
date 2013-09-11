@@ -45,6 +45,7 @@ import           Data.Attoparsec.Combinator
 import           Text.HTML.TagSoup
 
 import           Network.Http.Client
+import qualified Options.Applicative as O
 
 matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
@@ -66,6 +67,7 @@ scrapeKeywords tags = listToMaybe $ do
 scrapeLinks :: [Tag Text] -> [Text]
 scrapeLinks =  filter (not . T.isSuffixOf ".html")
              . filter (not . T.isPrefixOf "http")
+             . filter (not . T.isInfixOf "/?")
              . map (fromAttrib "href") 
              . filter (matches $ TagOpen "a" [("href","")])
 
@@ -120,15 +122,19 @@ mapReq f b = request (f b) >>= respond >>= mapReq f
 
 main :: IO ()
 main = do
-    let configuration = ("http://www.zalora.sg/",3)
-    withFile "./dist/result.txt" WriteMode $ \h -> 
+    let parser = (,,) <$> O.argument O.str (O.metavar "URL") 
+                      <*> O.argument O.str (O.metavar "OUTPUTFILE") 
+                      <*> O.argument O.auto (O.metavar "CONCURRENCY") 
+    (url,file,concurrency) <- O.execParser (O.info parser mempty)
+    withFile file WriteMode $ \h -> 
         let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
 
-            effect = runRWSP configuration (S.singleton "/", S.empty) $ 
-                          pageServer "http://www.zalora.sg/" >+> 
+            effect = runStateP (S.singleton "/", S.empty) $ 
+                          pageServer (T.pack url) >+> 
                           P.generalize (P.chain logVisited) >+> 
-                          mapReq (Prelude.take 3) >+>
+                          mapReq (Prelude.take concurrency) >+>
                           spider >+> 
                           (P.generalize $ scraper >-> P.map show >-> P.toHandle h) $ ()
-        in do (_,_,()) <- runEffect effect
+        in do (_,_) <- runEffect effect
               return ()
+    
