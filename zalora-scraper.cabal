@@ -57,7 +57,6 @@ executable zalora-scraper
         io-streams >= 1.1.1.0 && < 1.2, 
         http-streams >= 0.6.0.2 && < 0.7,
         bytestring >= 0.10 && < 0.12,
-        logict >= 0.6 && < 0.7,
         mtl >= 2.1.2 && < 3, 
         text >= 0.11.3 && < 0.12,
         attoparsec >= 0.10.4.0 && < 0.10.5,
@@ -65,6 +64,8 @@ executable zalora-scraper
         containers >= 0.5.3 && < 0.6.0,
         lens >= 3.9.0 && < 4.0.0,
         async >= 2.0.1.0 && < 2.1,
-        mmorph >= 1.0.0 && < 1.1
+        mmorph >= 1.0.0 && < 1.1,
+        optparse-applicative >= 0.5.2.0 && < 0.6
+
 
 

@@ -12,7 +12,6 @@ import           Control.Monad hiding (mapM_)
 import           Control.Monad.Trans
 import qualified Control.Monad.State as S
 import qualified Control.Monad.Reader as R
-import           Control.Monad.Logic (observeAll)
 import           Control.Concurrent.Async
 import           Control.Lens
 import qualified Data.Foldable as F
@@ -75,28 +74,19 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
             . map (fromAttrib "id") 
             . filter (matches $ TagOpen "a" [("href",""),("class","itm-link"),("id","")])
 
-pageServer :: (MonadIO m, R.MonadReader Text m) => [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
-pageServer urlBatch = do
-    rootUrl <- R.ask
+mapReq :: Monad m => (b -> c) -> b -> Proxy c a b a m r
+mapReq f b = request (f b) >>= respond >>= mapReq f    
+
+pageServer :: MonadIO m => Text -> [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
+pageServer baseUrl urlBatch = do
     pages <- liftIO . flip mapConcurrently urlBatch $ \rel ->
-                parseTags . decodeUtf8 <$> get (encodeUtf8 $ rootUrl <> "/" <> rel) concatHandler'
-    respond (M.fromList $ zip urlBatch pages) >>= pageServer
+                parseTags . decodeUtf8 <$> get (encodeUtf8 $ baseUrl <> "/" <> rel) concatHandler'
+    respond (M.fromList $ zip urlBatch pages) >>= pageServer baseUrl
 
-urlLogger :: MonadIO m => Pipe (M.Map Text a) (M.Map Text a) m r
-urlLogger = forever $ do
-    stuff <- await  
-    liftIO $ putStrLn $ "Visited urls: " <> (show . F.toList . M.keysSet $ stuff)
-    yield stuff
-
-data SKUBatch = SKUBatch {
-        _keywords :: [Text],
-        _skus :: [Text] 
-    } 
-
-throttler :: R.MonadReader Int m => [b] -> Proxy [b] a [b] a m r
-throttler urls = do
-    batchSize <- R.ask
-    request (Prelude.take batchSize urls) >>= respond >>= throttler
+urlLogger :: MonadIO m => String -> Pipe (M.Map Text a) (M.Map Text a) m r
+urlLogger msg = P.mapM $ \m -> do 
+    liftIO . putStrLn $ msg <> (show . F.toList . M.keysSet $ m) 
+    return m
 
 spider :: S.MonadState (S.Set Text,S.Set Text) s => 
                    () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
@@ -113,6 +103,11 @@ spider () = do
                 F.forM_ processedPages respond 
                 spider ()
 
+data SKUBatch = SKUBatch {
+        _keywords :: [Text],
+        _skus :: [Text] 
+    } 
+
 makeLenses ''SKUBatch
 
 instance Show SKUBatch where
@@ -128,21 +123,16 @@ scraper = forever $ do
         Just kws@[_,_,_,_] -> yield $ SKUBatch kws (scrapeSKUs tags)
         _ -> return ()
 
-printer :: (R.MonadReader Handle m, MonadIO m) => Consumer SKUBatch m a
-printer = forever $ do
-    handle <- R.ask
-    await >>= liftIO . hPutStrLn handle . show
-
 main :: IO ()
 main = do
-    let configuration = ("http://www.zalora.sg/",3,System.IO.stdout)
+    let configuration = ("http://www.zalora.sg/",3)
     withFile "./dist/result.txt" WriteMode $ \h -> 
-        let ran = runRWSP (set _3 h configuration) (S.singleton "/", S.empty) $ 
-                      hoist (magnify _1) . pageServer >+> 
-                      P.generalize urlLogger >+> 
-                      hoist (magnify _2) . throttler >+> 
-                      spider >+> 
-                      P.generalize scraper >+> 
-                      hoist (magnify _3) . P.generalize printer $ ()
-        in do (_,_,()) <- runEffect ran 
+        let effect = runRWSP configuration (S.singleton "/", S.empty) $ 
+                          pageServer "http://www.zalora.sg/" >+> 
+                          P.generalize (urlLogger "Pages visited: ") >+> 
+                          mapReq (Prelude.take 3) >+>
+                          spider >+> 
+                          P.generalize scraper >+> 
+                          (P.generalize $ P.map show >-> P.toHandle h) $ ()
+        in do (_,_,()) <- runEffect effect
               return ()
