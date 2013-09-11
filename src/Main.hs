@@ -13,6 +13,7 @@ import           Control.Monad.Trans
 import qualified Control.Monad.State as S
 import qualified Control.Monad.Reader as R
 import           Control.Monad.Logic (observeAll)
+import           Control.Concurrent.Async
 import           Control.Lens
 import qualified Data.Foldable as F
 import qualified Data.Traversable as TR
@@ -76,7 +77,7 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
 pageServer :: (MonadIO m, R.MonadReader Text m) => [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
 pageServer urlBatch = do
     rootUrl <- R.ask
-    pages <- liftIO . TR.forM urlBatch $ \rel ->
+    pages <- liftIO . flip mapConcurrently urlBatch $ \rel ->
                 parseTags . decodeUtf8 <$> get (encodeUtf8 $ rootUrl <> "/" <> rel) concatHandler'
     respond (M.fromList $ zip urlBatch pages) >>= pageServer
 
@@ -85,13 +86,9 @@ data SKUBatch = SKUBatch {
         _skus :: [Text] 
     } 
 
-makeLenses ''SKUBatch
-
-instance Show SKUBatch where
-    show (SKUBatch ks skus) = 
-        let col1 = concat ["\"",concat . intersperse "," . map T.unpack $ skus,"\""]
-            col2 = concat $ intersperse "." . map T.unpack $ ks
-        in concat  [col1, "; ", col2]
+throttler :: Monad m => [Text] -> Proxy [Text] a [Text] a m r
+throttler urls = do
+    request (Prelude.take 3 urls) >>= respond >>= throttler
 
 spider :: S.MonadState (S.Set Text,S.Set Text) s => 
                    () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
@@ -108,6 +105,14 @@ spider () = do
                 F.forM_ processedPages respond 
                 spider ()
 
+makeLenses ''SKUBatch
+
+instance Show SKUBatch where
+    show (SKUBatch ks skus) = 
+        let col1 = concat ["\"",concat . intersperse "," . map T.unpack $ skus,"\""]
+            col2 = concat $ intersperse "." . map T.unpack $ ks
+        in concat  [col1, "; ", col2]
+
 scraper :: Monad m => Pipe [Tag Text] SKUBatch m a
 scraper = forever $ do
     tags <- await
@@ -119,7 +124,7 @@ printer :: MonadIO m => Consumer SKUBatch m a
 printer = forever $ await >>= liftIO . putStrLn . show
 
 pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Effect s ()
-pipeline = pageServer >+> spider >+> P.generalize scraper >+> P.generalize printer $ ()
+pipeline = pageServer >+> throttler >+> spider >+> P.generalize scraper >+> P.generalize printer $ ()
 
 main :: IO ()
 main = do
