@@ -14,8 +14,8 @@ import qualified Control.Monad.State as S
 import qualified Control.Monad.Reader as R
 import           Control.Monad.Logic (observeAll)
 import           Control.Lens
-import           Data.Foldable (mapM_)
-import           Data.Traversable
+import qualified Data.Foldable as F
+import qualified Data.Traversable as TR
 import           Data.Char
 import           Data.Maybe
 import           Data.Monoid
@@ -73,9 +73,12 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
             . map (fromAttrib "id") 
             . filter (matches $ TagOpen "a" [("href",""),("class","itm-link"),("id","")])
 
-pageServer :: R.MonadReader Text m => [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
-pageServer urlBatch = 
-    respond M.empty >>= pageServer 
+pageServer :: (MonadIO m, R.MonadReader Text m) => [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
+pageServer urlBatch = do
+    rootUrl <- R.ask
+    pages <- liftIO . TR.forM urlBatch $ \rel ->
+                parseTags . decodeUtf8 <$> get (encodeUtf8 $ rootUrl <> "/" <> rel) concatHandler'
+    respond (M.fromList $ zip urlBatch pages) >>= pageServer
 
 data SKUBatch = SKUBatch {
         _keywords :: [Text],
@@ -90,9 +93,9 @@ instance Show SKUBatch where
             col2 = concat $ intersperse "." . map T.unpack $ ks
         in concat  [col1, "; ", col2]
 
-scraperCore :: S.MonadState (S.Set Text,S.Set Text) s => 
-                   () -> Proxy [Text] (M.Map Text [Tag Text]) () SKUBatch s ()
-scraperCore () = do
+spider :: S.MonadState (S.Set Text,S.Set Text) s => 
+                   () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
+spider () = do
     (pending,visited) <- S.get
     if S.null pending
         then return ()
@@ -102,21 +105,28 @@ scraperCore () = do
                     pending'' = S.union pending' (S.difference links visited)
                     visited' = S.union links visited 
                 S.put (pending'',visited')
-                respond $ SKUBatch [] []
-                scraperCore ()
+                F.forM_ processedPages respond 
+                spider ()
+
+scraper :: Monad m => Pipe [Tag Text] SKUBatch m a
+scraper = forever $ do
+    tags <- await
+    case scrapeKeywords tags of   
+        Just kws@[_,_,_,_] -> yield $ SKUBatch kws (scrapeSKUs tags)
+        _ -> return ()
 
 printer :: MonadIO m => Consumer SKUBatch m a
 printer = forever $ await >>= liftIO . putStrLn . show
 
 pipeline :: (MonadIO s, R.MonadReader Text s, S.MonadState (S.Set Text,S.Set Text) s) => Effect s ()
-pipeline = pageServer >+> scraperCore >+> P.generalize printer $ ()
+pipeline = pageServer >+> spider >+> P.generalize scraper >+> P.generalize printer $ ()
 
 main :: IO ()
 main = do
     soup <- parseTags . decodeUtf8 <$> get "http://www.zalora.sg/womens/clothing/shorts" concatHandler'
-    mapM_ (mapM_ TIO.putStrLn) (scrapeKeywords soup)
-    mapM_ TIO.putStrLn (scrapeLinks soup)
-    mapM_ TIO.putStrLn (scrapeSKUs soup)
+    F.mapM_ (F.mapM_ TIO.putStrLn) (scrapeKeywords soup)
+    F.mapM_ TIO.putStrLn (scrapeLinks soup)
+    F.mapM_ TIO.putStrLn (scrapeSKUs soup)
     let ran = runRWSP "http://www.zalora.sg/" (S.singleton "/", S.empty) $ pipeline 
     (_,_,()) <- runEffect $ ran 
     putStrLn $ show $ SKUBatch ["shop","sg","bands","foo"] ["ADFBCD","4343434","4343344334"]
