@@ -74,19 +74,11 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
             . map (fromAttrib "id") 
             . filter (matches $ TagOpen "a" [("href",""),("class","itm-link"),("id","")])
 
-mapReq :: Monad m => (b -> c) -> b -> Proxy c a b a m r
-mapReq f b = request (f b) >>= respond >>= mapReq f    
-
 pageServer :: MonadIO m => Text -> [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
 pageServer baseUrl urlBatch = do
     pages <- liftIO . flip mapConcurrently urlBatch $ \rel ->
                 parseTags . decodeUtf8 <$> get (encodeUtf8 $ baseUrl <> "/" <> rel) concatHandler'
     respond (M.fromList $ zip urlBatch pages) >>= pageServer baseUrl
-
-urlLogger :: MonadIO m => String -> Pipe (M.Map Text a) (M.Map Text a) m r
-urlLogger msg = P.mapM $ \m -> do 
-    liftIO . putStrLn $ msg <> (show . F.toList . M.keysSet $ m) 
-    return m
 
 spider :: S.MonadState (S.Set Text,S.Set Text) s => 
                    () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
@@ -123,16 +115,20 @@ scraper = forever $ do
         Just kws@[_,_,_,_] -> yield $ SKUBatch kws (scrapeSKUs tags)
         _ -> return ()
 
+mapReq :: Monad m => (b -> c) -> b -> Proxy c a b a m r
+mapReq f b = request (f b) >>= respond >>= mapReq f    
+
 main :: IO ()
 main = do
     let configuration = ("http://www.zalora.sg/",3)
     withFile "./dist/result.txt" WriteMode $ \h -> 
-        let effect = runRWSP configuration (S.singleton "/", S.empty) $ 
+        let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
+
+            effect = runRWSP configuration (S.singleton "/", S.empty) $ 
                           pageServer "http://www.zalora.sg/" >+> 
-                          P.generalize (urlLogger "Pages visited: ") >+> 
+                          P.generalize (P.chain logVisited) >+> 
                           mapReq (Prelude.take 3) >+>
                           spider >+> 
-                          P.generalize scraper >+> 
-                          (P.generalize $ P.map show >-> P.toHandle h) $ ()
+                          (P.generalize $ scraper >-> P.map show >-> P.toHandle h) $ ()
         in do (_,_,()) <- runEffect effect
               return ()
