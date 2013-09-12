@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP                #-}
-{-# LANGUAGE TemplateHaskell    #-}
 {-# LANGUAGE FlexibleContexts   #-}
 {-# LANGUAGE OverloadedStrings  #-}
 
@@ -13,7 +11,6 @@ import           Control.Monad.Trans
 import qualified Control.Monad.State as S
 import qualified Control.Monad.Reader as R
 import           Control.Concurrent.Async
-import           Control.Lens
 import qualified Data.Foldable as F
 import qualified Data.Traversable as TR
 import           Data.Char
@@ -103,8 +100,6 @@ data SKUBatch = SKUBatch {
         _keywords :: [Text],
         _skus :: [Text] 
     } 
-
-makeLenses ''SKUBatch
 
 instance Show SKUBatch where
     show (SKUBatch ks skus) = 
