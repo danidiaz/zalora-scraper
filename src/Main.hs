@@ -4,41 +4,29 @@
 module Main where
 
 ------------------------------------------------------------------------------
-import           Control.Exception (SomeException, try)
+import           System.IO
 import           Control.Applicative
-import           Control.Monad hiding (mapM_)
+import           Control.Monad 
 import           Control.Monad.Trans
 import qualified Control.Monad.State as S
 import           Control.Concurrent.Async
-import qualified Data.Foldable as F
-import qualified Data.Traversable as TR
 import           Data.Char
 import           Data.Maybe
+import           Data.List
 import           Data.Monoid
+import qualified Data.Foldable as F
 import qualified Data.Set as S
 import qualified Data.Map as M
-import           Data.List
-import           System.IO
-import           Prelude hiding (mapM_)
-
-import           System.IO
-import           System.IO.Streams (InputStream, OutputStream, stdout)
-import qualified System.IO.Streams as Streams
-import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Encoding
-
+import           Data.Attoparsec.Text hiding (takeWhile)
+import           Data.Attoparsec.Combinator
+import           Data.Text (Text)
 import           Pipes
 import           Pipes.Core
 import           Pipes.Lift
 import qualified Pipes.Prelude as P
-
-import           Data.Attoparsec.Text hiding (takeWhile)
-import qualified Data.Attoparsec.Text as A
-import           Data.Attoparsec.Combinator
-
 import           Text.HTML.TagSoup
-
 import           Network.Http.Client
 import qualified Options.Applicative as O
 
