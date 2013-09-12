@@ -10,6 +10,7 @@ import           Control.Monad
 import           Control.Monad.Trans
 import qualified Control.Monad.State as S
 import           Control.Concurrent.Async
+import           Control.Exception
 import           Data.Char
 import           Data.Maybe
 import           Data.List
@@ -29,6 +30,8 @@ import qualified Pipes.Prelude as P
 import           Text.HTML.TagSoup
 import           Network.Http.Client
 import qualified Options.Applicative as O
+
+import System.IO.Streams.Attoparsec
 
 matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
@@ -61,9 +64,11 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
 
 pageServer :: MonadIO m => Text -> [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
 pageServer baseUrl urlBatch = do
-    pages <- liftIO . flip mapConcurrently urlBatch $ \rel ->
-                parseTags . decodeUtf8 <$> get (encodeUtf8 $ baseUrl <> "/" <> rel) concatHandler'
-    respond (M.fromList $ zip urlBatch pages) >>= pageServer baseUrl
+    pages <- liftIO . flip mapConcurrently urlBatch $ \rel -> 
+                catch (get (encodeUtf8 $ baseUrl <> "/" <> rel) concatHandler')
+                      (\e -> let _ = e::ParseException in return "") 
+    let decodedPages = map (either (const []) parseTags . decodeUtf8') pages 
+    respond (M.fromList $ zip urlBatch decodedPages) >>= pageServer baseUrl
 
 spider :: S.MonadState (S.Set Text,S.Set Text) s => 
                    () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
