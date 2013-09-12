@@ -54,9 +54,10 @@ matches pattern tag = tag ~== pattern
 parseKeywords :: Parser [Text] 
 parseKeywords = 
        manyTill' (takeTill isEndOfLine *> endOfLine)
-                 (string "wt.contentId" *> _char '=' *> _char '"') 
+                 (_string "wt.contentId" *> _char '=' *> _char '"') 
     *> sepBy' (takeTill $ \c -> c == '.' || c == '"') (char '.')
     where _char x = skipSpace *> char x 
+          _string x = skipSpace *> string x 
 
 scrapeKeywords :: [Tag Text] -> Maybe [Text]
 scrapeKeywords tags = listToMaybe $ do
@@ -65,9 +66,9 @@ scrapeKeywords tags = listToMaybe $ do
         takeWhile (not.T.null) <$> parse parseKeywords txt
 
 scrapeLinks :: [Tag Text] -> [Text]
-scrapeLinks =  filter (not . T.isSuffixOf ".html")
-             . filter (not . T.isPrefixOf "http")
-             . filter (not . T.isInfixOf "/?")
+scrapeLinks =  map (T.toLower . T.dropWhileEnd (=='/') . fst . T.breakOn "?")
+             . filter (not . T.isSuffixOf ".html")
+             . filter (T.isPrefixOf "/")
              . map (fromAttrib "href") 
              . filter (matches $ TagOpen "a" [("href","")])
 
@@ -130,7 +131,7 @@ main = do
     withFile file WriteMode $ \h -> 
         let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
 
-            effect = runStateP (S.singleton "/", S.empty) $ 
+            effect = runStateP (S.singleton "", S.empty) $ 
                           pageServer (T.pack url) >+> 
                           P.generalize (P.chain logVisited) >+> 
                           mapReq (Prelude.take concurrency) >+>
