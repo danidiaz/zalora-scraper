@@ -17,11 +17,11 @@ import           Data.Monoid
 import qualified Data.Foldable as F
 import qualified Data.Set as S
 import qualified Data.Map as M
+import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Encoding
 import           Data.Attoparsec.Text hiding (takeWhile)
 import           Data.Attoparsec.Combinator
-import           Data.Text (Text)
 import           Pipes
 import           Pipes.Core
 import           Pipes.Lift
@@ -106,8 +106,12 @@ main :: IO ()
 main = do
     let parser = (,,) <$> O.argument O.str (O.metavar "URL") 
                       <*> O.argument O.str (O.metavar "OUTPUTFILE") 
-                      <*> O.argument O.auto (O.metavar "CONCURRENCY") 
-    (url,file,concurrency) <- O.execParser (O.info parser mempty)
+                      <*> O.option (O.value 1 <> 
+                                    O.showDefault <> 
+                                    O.short 'c' <> 
+                                    O.metavar "CONCURRENCY" <> 
+                                    O.help "Level of concurrency")
+    (url,file,concurrency) <- O.execParser $ O.info (O.helper <*> parser) O.fullDesc
     withFile file WriteMode $ \h -> do
         let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
         (_,_) <- runEffect $ runStateP (S.singleton "", S.empty) $ 
