@@ -9,7 +9,6 @@ import           Control.Applicative
 import           Control.Monad hiding (mapM_)
 import           Control.Monad.Trans
 import qualified Control.Monad.State as S
-import qualified Control.Monad.Reader as R
 import           Control.Concurrent.Async
 import qualified Data.Foldable as F
 import qualified Data.Traversable as TR
@@ -28,7 +27,6 @@ import qualified System.IO.Streams as Streams
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Encoding
-import qualified Data.Text.IO as TIO
 
 import           Pipes
 import           Pipes.Core
@@ -47,7 +45,6 @@ import qualified Options.Applicative as O
 matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
 
--- wt.contentId = "shop.pc.brand.mexx"
 parseKeywords :: Parser [Text] 
 parseKeywords = 
        manyTill' (takeTill isEndOfLine *> endOfLine)
@@ -123,15 +120,13 @@ main = do
                       <*> O.argument O.str (O.metavar "OUTPUTFILE") 
                       <*> O.argument O.auto (O.metavar "CONCURRENCY") 
     (url,file,concurrency) <- O.execParser (O.info parser mempty)
-    withFile file WriteMode $ \h -> 
+    withFile file WriteMode $ \h -> do
         let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
-
-            effect = runStateP (S.singleton "", S.empty) $ 
-                          pageServer (T.pack url) >+> 
-                          P.generalize (P.chain logVisited) >+> 
-                          mapReq (Prelude.take concurrency) >+>
-                          spider >+> 
-                          (P.generalize $ scraper >-> P.map show >-> P.toHandle h) $ ()
-        in do (_,_) <- runEffect effect
-              return ()
+        (_,_) <- runEffect $ runStateP (S.singleton "", S.empty) $ 
+                      pageServer (T.pack url) >+> 
+                      P.generalize (P.chain logVisited) >+> 
+                      mapReq (Prelude.take concurrency) >+>
+                      spider >+> 
+                      (P.generalize $ scraper >-> P.map show >-> P.toHandle h) $ ()
+        return ()
     
