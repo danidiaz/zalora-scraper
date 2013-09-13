@@ -8,3 +8,5 @@ users.json
 *.chi
 *.chs.h
 .virthualenv
+.cabal-sandbox
+cabal.sandbox.config

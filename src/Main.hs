@@ -15,6 +15,7 @@ import           Data.Char
 import           Data.Maybe
 import           Data.List
 import           Data.Monoid
+import qualified Data.ByteString.Lazy as L
 import qualified Data.Foldable as F
 import qualified Data.Set as S
 import qualified Data.Map as M
@@ -28,10 +29,9 @@ import           Pipes.Core (Server,request,respond,(>+>))
 import           Pipes.Lift (runStateP)
 import qualified Pipes.Prelude as P
 import           Text.HTML.TagSoup ((~==),Tag(..),fromAttrib,partitions,parseTags)
-import           Network.Http.Client (get,concatHandler') 
 import qualified Options.Applicative as O
-
-import System.IO.Streams.Attoparsec
+import qualified Network.HTTP.Conduit as C
+import qualified System.Remote.Monitoring as M
 
 matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
@@ -66,18 +66,11 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
 -- responds with a map of the corresponding tag soups. 
 pageServer :: MonadIO m => Text -> [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
 pageServer baseUrl urlBatch = do
-    pages <- liftIO . flip mapConcurrently urlBatch $ \rel -> 
-        catches (get (encodeUtf8 $ baseUrl <> "/" <> rel) concatHandler')
-                -- Workaround for a strange behaviour:
-                -- URLs like http:/zalora.sg/PAPERSELF and 
-                --           http://www.zalora.sg/catalog/index won't parse.
-                [ Handler $ \e -> let _ = e::ParseException in return "",
-                  Handler $ \e -> let msg = show (e::SomeException) 
-                                  in if (isPrefixOf "Can't parse URI" msg) 
-                                     then return "" 
-                                     else throw e 
-                ]
-    let decodedPages = map (either (const []) parseTags . decodeUtf8') pages 
+    pages <- liftIO . flip mapConcurrently urlBatch $ \rel -> do
+        catches (C.simpleHttp . T.unpack $ baseUrl <> "/" <> rel)
+                [ Handler $ \e -> let _ = e::C.HttpException in return "" ]
+    let decodedPages = map (either (const []) parseTags . decodeUtf8' . L.toStrict) 
+                           pages 
     respond (M.fromList $ zip urlBatch decodedPages) >>= pageServer baseUrl
 
 -- Asks the upstream to download and tagsoupify not-yet-visited pages,
@@ -136,6 +129,7 @@ main = do
                                     O.metavar "CONCURRENCY" <> 
                                     O.help "Level of concurrency")
     (url,file,concurrency) <- O.execParser $ O.info (O.helper <*> parser) O.fullDesc
+   -- M.forkServer "localhost" 8000
     withFile file WriteMode $ \h -> do
         let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
         (_,_) <- runEffect $ runStateP (S.singleton "", S.empty) $ 
