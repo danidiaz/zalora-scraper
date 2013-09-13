@@ -31,7 +31,7 @@ import qualified Pipes.Prelude as P
 import           Text.HTML.TagSoup ((~==),Tag(..),fromAttrib,partitions,parseTags)
 import qualified Options.Applicative as O
 import qualified Network.HTTP.Conduit as C
-import qualified System.Remote.Monitoring as M
+--import qualified System.Remote.Monitoring as M
 
 matches :: Tag Text -> Tag Text -> Bool
 matches pattern tag = tag ~== pattern
