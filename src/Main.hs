@@ -99,6 +99,9 @@ data SKUBatch = SKUBatch {
         _skus :: [Text] 
     } 
 
+trimSKUBatch :: Int -> SKUBatch -> SKUBatch 
+trimSKUBatch n (SKUBatch k skus) = SKUBatch k (Data.List.take n skus)
+
 instance Show SKUBatch where
     show (SKUBatch ks skus) = 
         let col1 = concat ["\"",concat . intersperse "," . map T.unpack $ skus,"\""]
@@ -121,14 +124,19 @@ mapReq f b = request (f b) >>= respond >>= mapReq f
 
 main :: IO ()
 main = do
-    let parser = (,,) <$> O.argument O.str (O.metavar "URL") 
-                      <*> O.argument O.str (O.metavar "OUTPUTFILE") 
-                      <*> O.option (O.value 1 <> 
+    let parser = (,,,) <$> O.argument O.str (O.metavar "URL") 
+                       <*> O.argument O.str (O.metavar "OUTPUTFILE") 
+                       <*> O.option (O.value 1 <> 
                                     O.showDefault <> 
                                     O.short 'c' <> 
                                     O.metavar "CONCURRENCY" <> 
                                     O.help "Level of concurrency")
-    (url,file,concurrency) <- O.execParser $ O.info (O.helper <*> parser) O.fullDesc
+                       <*> O.option (O.value 20 <> 
+                                    O.showDefault <> 
+                                    O.short 'n' <> 
+                                    O.metavar "MAXSKUS" <> 
+                                    O.help "Max number of SKUs per page")
+    (url,file,concurrency,maxSKUs) <- O.execParser $ O.info (O.helper <*> parser) O.fullDesc
    -- M.forkServer "localhost" 8000
     withFile file WriteMode $ \h -> do
         let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
@@ -138,6 +146,6 @@ main = do
                       -- Throttle the requests arriving to the page server.
                       mapReq (Prelude.take concurrency) >+> 
                       spider >+> 
-                      (P.generalize $ scraper >-> P.map show >-> P.toHandle h) $ ()
+                      (P.generalize $ scraper >-> P.map (show . trimSKUBatch maxSKUs) >-> P.toHandle h) $ ()
         return ()
     
