@@ -9,7 +9,7 @@ import           Control.Applicative
 import           Control.Monad 
 import           Control.Monad.Trans
 import qualified Control.Monad.State as S
-import           Control.Concurrent.Async
+import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Exception
 import           Data.Char
 import           Data.Maybe
@@ -23,12 +23,12 @@ import qualified Data.Text as T
 import           Data.Text.Encoding
 import           Data.Attoparsec.Text hiding (takeWhile)
 import           Data.Attoparsec.Combinator
-import           Pipes
-import           Pipes.Core
-import           Pipes.Lift
+import           Pipes (Proxy,Pipe,await,yield,runEffect,(>->))
+import           Pipes.Core (Server,request,respond,(>+>))
+import           Pipes.Lift (runStateP)
 import qualified Pipes.Prelude as P
-import           Text.HTML.TagSoup
-import           Network.Http.Client
+import           Text.HTML.TagSoup ((~==),Tag(..),fromAttrib,partitions,parseTags)
+import           Network.Http.Client (get,concatHandler') 
 import qualified Options.Applicative as O
 
 import System.IO.Streams.Attoparsec
@@ -51,7 +51,7 @@ scrapeKeywords tags = listToMaybe $ do
         takeWhile (not.T.null) <$> parse parseKeywords txt
 
 scrapeLinks :: [Tag Text] -> [Text]
-scrapeLinks =  map (T.toLower . T.dropWhileEnd (=='/') . fst . T.breakOn "?")
+scrapeLinks =  map (T.dropWhileEnd (=='/') . fst . T.breakOn "?")
              . filter (not . T.isSuffixOf ".html")
              . filter (T.isPrefixOf "/")
              . map (fromAttrib "href") 
@@ -62,16 +62,31 @@ scrapeSKUs =  concatMap (maybeToList . T.stripPrefix ":" . snd . T.breakOn ":")
             . map (fromAttrib "id") 
             . filter (matches $ TagOpen "a" [("href",""),("class","itm-link"),("id","")])
 
+-- Receives lists of relative urls to download concurrently,
+-- responds with a map of the corresponding tag soups. 
 pageServer :: MonadIO m => Text -> [Text] -> Server [Text] (M.Map Text [Tag Text]) m a 
 pageServer baseUrl urlBatch = do
     pages <- liftIO . flip mapConcurrently urlBatch $ \rel -> 
-                catch (get (encodeUtf8 $ baseUrl <> "/" <> rel) concatHandler')
-                      (\e -> let _ = e::ParseException in return "") 
+        catches (get (encodeUtf8 $ baseUrl <> "/" <> rel) concatHandler')
+                -- Workaround for a strange behaviour:
+                -- URLs like http:/zalora.sg/PAPERSELF and 
+                --           http://www.zalora.sg/catalog/index won't parse.
+                [ Handler $ \e -> let _ = e::ParseException in return "",
+                  Handler $ \e -> let msg = show (e::SomeException) 
+                                  in if (isPrefixOf "Can't parse URI" msg) 
+                                     then return "" 
+                                     else throw e 
+                ]
     let decodedPages = map (either (const []) parseTags . decodeUtf8') pages 
     respond (M.fromList $ zip urlBatch decodedPages) >>= pageServer baseUrl
 
+-- Asks the upstream to download and tagsoupify not-yet-visited pages,
+-- and passes the resulting tag soups to the downstream.
+-- Extracts links and updates the list of not-yet-visited pages.
+-- The Proxy state is (visited urls,pending urls).
 spider :: S.MonadState (S.Set Text,S.Set Text) s => 
-                   () -> Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
+          () -> 
+          Proxy [Text] (M.Map Text [Tag Text]) () [Tag Text] s ()
 spider () = do
     (pending,visited) <- S.get
     if S.null pending
@@ -80,7 +95,7 @@ spider () = do
                 let urls =  M.keysSet processedPages
                     pending' = S.difference pending urls
                     visited' = S.union visited urls 
-                    links = M.foldl' (\s -> S.union s . S.fromList . scrapeLinks) S.empty processedPages 
+                    links = mconcat . map (S.fromList.scrapeLinks) . M.elems $ processedPages 
                     pending'' = S.union pending' (S.difference links visited')
                 S.put (pending'',visited')
                 F.forM_ processedPages respond 
@@ -97,6 +112,9 @@ instance Show SKUBatch where
             col2 = concat $ intersperse "." . map T.unpack $ ks
         in concat  [col1, "; ", col2]
 
+-- If a tag soup contains a contentId, parse it.
+-- If the contentID contains 4 components, 
+-- extract the SKUs from the soup and pass them downstream.
 scraper :: Monad m => Pipe [Tag Text] SKUBatch m a
 scraper = forever $ do
     tags <- await
@@ -104,6 +122,7 @@ scraper = forever $ do
         Just kws@[_,_,_,_] -> yield $ SKUBatch kws (scrapeSKUs tags)
         _ -> return ()
 
+-- Maps requests going upstream in a Proxy.
 mapReq :: Monad m => (b -> c) -> b -> Proxy c a b a m r
 mapReq f b = request (f b) >>= respond >>= mapReq f    
 
@@ -121,8 +140,9 @@ main = do
         let logVisited = liftIO . putStrLn . (<>) "Visited: " . show . M.keys 
         (_,_) <- runEffect $ runStateP (S.singleton "", S.empty) $ 
                       pageServer (T.pack url) >+> 
-                      P.generalize (P.chain logVisited) >+> 
-                      mapReq (Prelude.take concurrency) >+>
+                      P.generalize (P.chain logVisited) >+>
+                      -- Throttle the requests arriving to the page server.
+                      mapReq (Prelude.take concurrency) >+> 
                       spider >+> 
                       (P.generalize $ scraper >-> P.map show >-> P.toHandle h) $ ()
         return ()
